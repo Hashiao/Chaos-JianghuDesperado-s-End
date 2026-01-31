@@ -1,0 +1,19 @@
+* text=auto
+
+*.js text
+*.json text
+*.md text
+*.txt text
+*.rpgproject text
+*.css text
+*.html text
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.ogg binary
+*.m4a binary
+*.wav binary
+*.ttf binary
+*.otf binary
