@@ -257,6 +257,12 @@
         if (this._chaosMainAreaOverlay && this._chaosMainAreaOverlay.setMode) this._chaosMainAreaOverlay.setMode(mode);
 
         if ($gameSystem && !$gameSystem._chaosIntroPlayed && root.Chaos && root.Chaos.DialogueRuntime) {
+            /**
+             * 参数：无
+             * 返回：void
+             * 操作：开场期间锁定“玩家输入移动”。解锁动作留给后续剧情节点触发。
+             */
+            $gameSystem._chaosPlayerInputLocked = true;
             root.Chaos.DialogueRuntime.start('INTRO', 'COLD', this._messageWindow || null);
             $gameSystem._chaosIntroPlayed = true;
         }

@@ -74,7 +74,15 @@
             realName: 'ABC',
             faction: '',
             factionRank: '',
-            description: ''
+            description: '',
+            maxHp: -1,
+            hp: -1,
+            maxMp: -1,
+            mp: -1,
+            hit: -1,
+            def: -1,
+            eva: -1,
+            blk: -1
         });
     }
 })();

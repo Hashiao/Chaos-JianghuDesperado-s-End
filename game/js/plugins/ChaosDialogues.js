@@ -226,7 +226,11 @@
          * 参数：
          * - actions: Array<object>|null，典型值 [{type:'mainAreaOverlayMode', mode:'fog'}]
          * 返回：void
-         * 操作：执行节点动作列表。内置支持 mainAreaOverlayMode；其余动作通过 emit 扩展分发。
+         * 操作：执行节点动作列表。内置支持：
+         * - mainAreaOverlayMode：切换右上主区域遮罩模式
+         * - setCharacterStats：写入角色动态数值（存档）
+         * - setPlayerInputLocked：锁定/解锁“玩家输入移动”
+         * 其余动作通过 emit 扩展分发。
          */
         if (!actions || actions.length === 0) return;
         for (var i = 0; i < actions.length; i++) {
@@ -238,10 +242,30 @@
                 if (scene && scene._chaosMainAreaOverlay && scene._chaosMainAreaOverlay.setMode) {
                     scene._chaosMainAreaOverlay.setMode($gameSystem._chaosMainAreaOverlayMode);
                 }
+            } else if (a.type === 'setCharacterStats') {
+                if (root.Chaos && root.Chaos.CharacterStats && root.Chaos.CharacterStats.set) {
+                    root.Chaos.CharacterStats.set(a.uid, a.stats || {});
+                }
+            } else if (a.type === 'setPlayerInputLocked') {
+                if ($gameSystem) $gameSystem._chaosPlayerInputLocked = !!a.locked;
             } else {
                 this.emit(a.type, a);
             }
         }
+    };
+
+    var _Game_Player_canMove = Game_Player.prototype.canMove;
+    Game_Player.prototype.canMove = function() {
+        /**
+         * 参数：无
+         * 返回：boolean，典型值 true/false
+         * 操作：在原有“能否移动”判断上追加一个“玩家输入移动锁”开关。
+         * 说明：
+         * - locked=true 时：键盘方向键、鼠标点地移动等都会被禁用；
+         * - 事件强制移动（move route forcing）不依赖 canMove，一般仍可正常执行。
+         */
+        if ($gameSystem && $gameSystem._chaosPlayerInputLocked) return false;
+        return _Game_Player_canMove.call(this);
     };
 
     DialogueRuntime.prototype.handleMessageClick = function(windowMessage) {
@@ -596,7 +620,77 @@
                     '你的名字是……嘶……想不起来了……',
                     '【继续】'
                 ],
-                links: { '继续': '__END__' }
+                links: { '继续': 'REMEMBER_1' }
+            },
+            REMEMBER_1: {
+                title: '记忆解封-1',
+                speakerUid: '000000',
+                description: '点击继续后：更新主角命中/防御/闪避/格挡，并展示第一段新对白',
+                actions: [
+                    { type: 'setCharacterStats', uid: '000000', stats: { hit: 3, def: 4, eva: 11, blk: 5 } }
+                ],
+                lines: [
+                    '随着记忆的解封，你逐渐想起，',
+                    '这里应该是一处名叫麒麟山的地方，'
+                ],
+                nextOnClick: 'REMEMBER_2'
+            },
+            REMEMBER_2: {
+                title: '记忆解封-2',
+                speakerUid: '000000',
+                description: '点击对话框推进至选项页',
+                lines: [
+                    '你受村民所托，于八月初十日上山寻找她那失踪的丈夫——一名资深的采药人。',
+                    '然而，当你在树林中兜兜转转四处寻觅之时，',
+                    '突然感觉到一股劲风从身后袭来,',
+                    '',
+                    '之后便是两眼一黑……直到现在醒来。',
+                    '此刻，趴在地上的你感受地面传来阵阵阴冷，似乎在提醒着你：该动起来了。'
+                ],
+                nextOnClick: 'CHOICE_1'
+            },
+            CHOICE_1: {
+                title: '选择-1',
+                speakerUid: '000000',
+                description: '出现三个可点击选项；目前分支内容暂未编写（按约定保持可点但不推进主线）',
+                lines: [
+                    '【检查身体】  【观察四周】  【爬起来】'
+                ],
+                links: {
+                    '检查身体': 'CHOICE_CHECK_BODY',
+                    '观察四周': 'CHOICE_LOOK_AROUND',
+                    '爬起来': 'CHOICE_GET_UP'
+                }
+            },
+            CHOICE_CHECK_BODY: {
+                title: '选择-检查身体',
+                speakerUid: '000000',
+                description: '分支内容占位；提示暂未实现并返回选项页',
+                lines: [
+                    '{（该分支内容待补充）}',
+                    '【返回】'
+                ],
+                links: { '返回': 'CHOICE_1' }
+            },
+            CHOICE_LOOK_AROUND: {
+                title: '选择-观察四周',
+                speakerUid: '000000',
+                description: '分支内容占位；提示暂未实现并返回选项页',
+                lines: [
+                    '{（该分支内容待补充）}',
+                    '【返回】'
+                ],
+                links: { '返回': 'CHOICE_1' }
+            },
+            CHOICE_GET_UP: {
+                title: '选择-爬起来',
+                speakerUid: '000000',
+                description: '分支内容占位；提示暂未实现并返回选项页',
+                lines: [
+                    '{（该分支内容待补充）}',
+                    '【返回】'
+                ],
+                links: { '返回': 'CHOICE_1' }
             }
         }
     });
