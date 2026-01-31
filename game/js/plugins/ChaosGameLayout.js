@@ -11,7 +11,8 @@
         sidebarPadding: 18,
         messageHeightRate: 0.25,
         hudUpdateIntervalFrames: 20,
-        author: 'Terrigal'
+        author: 'Terrigal',
+        placeholderName: '???'
     };
 
     function chaosHideWindowFrame(win) {
@@ -36,37 +37,37 @@
     function chaosRightPaneWidth() {
         /**
          * 参数：无
-         * 返回：number，典型值 Graphics.boxWidth - sidebarWidth（如 1240）
+         * 返回：number，典型值 Graphics.width - sidebarWidth（如 1240）
          * 操作：计算右侧主区域宽度。
          */
-        return Graphics.boxWidth - CHAOS_GAME_UI.sidebarWidth;
+        return Graphics.width - CHAOS_GAME_UI.sidebarWidth;
     }
 
     function chaosMessageHeight() {
         /**
          * 参数：无
-         * 返回：number，典型值 floor(Graphics.boxHeight * 0.25)（如 225）
+         * 返回：number，典型值 floor(Graphics.height * 0.25)（如 225）
          * 操作：计算底部对话框区域高度。
          */
-        return Math.floor(Graphics.boxHeight * CHAOS_GAME_UI.messageHeightRate);
+        return Math.floor(Graphics.height * CHAOS_GAME_UI.messageHeightRate);
     }
 
     function chaosMessageY() {
         /**
          * 参数：无
-         * 返回：number，典型值 Graphics.boxHeight - messageHeight（如 675）
+         * 返回：number，典型值 Graphics.height - messageHeight（如 675）
          * 操作：计算底部对话框区域y坐标。
          */
-        return Graphics.boxHeight - chaosMessageHeight();
+        return Graphics.height - chaosMessageHeight();
     }
 
     function chaosRightPaneTopHeight() {
         /**
          * 参数：无
-         * 返回：number，典型值 Graphics.boxHeight - messageHeight（如 675）
+         * 返回：number，典型值 Graphics.height - messageHeight（如 675）
          * 操作：计算右上方“地图可视区”的高度（消息窗口之外的区域）。
          */
-        return Graphics.boxHeight - chaosMessageHeight();
+        return Graphics.height - chaosMessageHeight();
     }
 
     function chaosApplyMapViewport(sceneMap) {
@@ -74,9 +75,13 @@
          * 参数：
          * - sceneMap: Scene_Map，典型值为当前地图场景实例 this
          * 返回：void
-         * 操作：将地图渲染区域裁切到右上区域，并把“镜头中心”偏移到右侧主区域中心。
+         * 操作：将地图渲染区域裁切到右上区域；当地图像素尺寸小于可视区时自动等比放大，确保填满灰色主区域。
          */
         if (!sceneMap || !sceneMap._spriteset) return;
+
+        var viewportX = chaosRightPaneX();
+        var viewportW = chaosRightPaneWidth();
+        var viewportH = chaosRightPaneTopHeight();
 
         var mask = sceneMap._chaosMapMask;
         if (!mask) {
@@ -87,15 +92,140 @@
 
         mask.clear();
         mask.beginFill(0xffffff, 1.0);
-        mask.drawRect(chaosRightPaneX(), 0, chaosRightPaneWidth(), chaosRightPaneTopHeight());
+        mask.drawRect(viewportX, 0, viewportW, viewportH);
         mask.endFill();
         mask.visible = false;
         mask.renderable = false;
 
-        sceneMap._spriteset.mask = mask;
-        sceneMap._spriteset.x = Math.floor(CHAOS_GAME_UI.sidebarWidth / 2);
-        sceneMap._spriteset.y = 0;
+        var spriteset = sceneMap._spriteset;
+        spriteset.mask = mask;
+
+        var baseW = Math.max(1, Graphics.width);
+        var baseH = Math.max(1, Graphics.height);
+        var mapPixW = ($gameMap && $gameMap.tileWidth) ? $gameMap.width() * $gameMap.tileWidth() : baseW;
+        var mapPixH = ($gameMap && $gameMap.tileHeight) ? $gameMap.height() * $gameMap.tileHeight() : baseH;
+        mapPixW = Math.max(1, mapPixW);
+        mapPixH = Math.max(1, mapPixH);
+
+        var scale = 1;
+        if (mapPixW < viewportW || mapPixH < viewportH) {
+            scale = Math.max(viewportW / mapPixW, viewportH / mapPixH);
+            scale = Math.max(1, scale);
+        }
+        spriteset._chaosViewportScale = scale;
+        spriteset._chaosViewportX = Math.floor(viewportX + (viewportW - baseW * scale) / 2);
+        spriteset._chaosViewportY = Math.floor((viewportH - baseH * scale) / 2);
+
+        spriteset.scale.x = spriteset._chaosViewportScale;
+        spriteset.scale.y = spriteset._chaosViewportScale;
+        spriteset.x = spriteset._chaosViewportX;
+        spriteset.y = spriteset._chaosViewportY;
     }
+
+    function chaosIsInMainArea(canvasX, canvasY) {
+        /**
+         * 参数：
+         * - canvasX:number 典型值 TouchInput.x
+         * - canvasY:number 典型值 TouchInput.y
+         * 返回：boolean
+         * 操作：判断鼠标/触控坐标是否位于右上“游戏主区域”内（用于限制点击移动与坐标换算）。
+         */
+        var x0 = chaosRightPaneX();
+        var y0 = 0;
+        var w = chaosRightPaneWidth();
+        var h = chaosRightPaneTopHeight();
+        return canvasX >= x0 && canvasX < x0 + w && canvasY >= y0 && canvasY < y0 + h;
+    }
+
+    function chaosViewportToScreenX(gameMap, canvasX) {
+        /**
+         * 参数：
+         * - gameMap: Game_Map，典型值为 $gameMap
+         * - canvasX:number 典型值 TouchInput.x
+         * 返回：number，典型值为换算后的屏幕坐标x（0..Graphics.width）
+         * 操作：将右上主区域内的canvas坐标，逆变换为RMMV默认“全屏”坐标系下的x，用于点击移动。
+         */
+        var scene = SceneManager && SceneManager._scene ? SceneManager._scene : null;
+        var spriteset = scene && scene._spriteset ? scene._spriteset : null;
+        if (!spriteset) return canvasX;
+        var scale = spriteset.scale ? spriteset.scale.x : 1;
+        if (!scale || scale <= 0) scale = 1;
+        return (canvasX - spriteset.x) / scale;
+    }
+
+    function chaosViewportToScreenY(gameMap, canvasY) {
+        /**
+         * 参数：
+         * - gameMap: Game_Map，典型值为 $gameMap
+         * - canvasY:number 典型值 TouchInput.y
+         * 返回：number，典型值为换算后的屏幕坐标y（0..Graphics.height）
+         * 操作：将右上主区域内的canvas坐标，逆变换为RMMV默认“全屏”坐标系下的y，用于点击移动。
+         */
+        var scene = SceneManager && SceneManager._scene ? SceneManager._scene : null;
+        var spriteset = scene && scene._spriteset ? scene._spriteset : null;
+        if (!spriteset) return canvasY;
+        var scale = spriteset.scale ? spriteset.scale.y : 1;
+        if (!scale || scale <= 0) scale = 1;
+        return (canvasY - spriteset.y) / scale;
+    }
+
+    var _Spriteset_Base_updatePosition = Spriteset_Base.prototype.updatePosition;
+    Spriteset_Map.prototype.updatePosition = function() {
+        /**
+         * 参数：无
+         * 返回：void
+         * 操作：在默认缩放/震动计算后，应用自定义“右上游戏主区域”视口的缩放与偏移，保证地图填满可视区。
+         */
+        _Spriteset_Base_updatePosition.call(this);
+        if (typeof this._chaosViewportScale !== 'number') return;
+        this.scale.x = this._chaosViewportScale;
+        this.scale.y = this._chaosViewportScale;
+        this.x = (this._chaosViewportX || 0) + Math.round($gameScreen.shake());
+        this.y = (this._chaosViewportY || 0);
+    };
+
+    var _Scene_Map_processMapTouch = Scene_Map.prototype.processMapTouch;
+    Scene_Map.prototype.processMapTouch = function() {
+        /**
+         * 参数：无
+         * 返回：void
+         * 操作：限制“点击地块移动”只在右上游戏主区域内生效，避免点击HUD/对话框时误触。
+         */
+        if (TouchInput.isTriggered() || this._touchCount > 0) {
+            if (TouchInput.isPressed()) {
+                if (!chaosIsInMainArea(TouchInput.x, TouchInput.y)) {
+                    $gameTemp.clearDestination();
+                    this._touchCount = 0;
+                    return;
+                }
+            }
+        }
+        _Scene_Map_processMapTouch.call(this);
+    };
+
+    var _Game_Map_canvasToMapX = Game_Map.prototype.canvasToMapX;
+    Game_Map.prototype.canvasToMapX = function(x) {
+        /**
+         * 参数：
+         * - x:number 典型值 TouchInput.x
+         * 返回：number，地图格子x
+         * 操作：当地图渲染被缩放/偏移到右上主区域时，修正点击坐标到默认屏幕坐标系，保证点哪走哪。
+         */
+        var fixedX = chaosViewportToScreenX(this, x);
+        return _Game_Map_canvasToMapX.call(this, fixedX);
+    };
+
+    var _Game_Map_canvasToMapY = Game_Map.prototype.canvasToMapY;
+    Game_Map.prototype.canvasToMapY = function(y) {
+        /**
+         * 参数：
+         * - y:number 典型值 TouchInput.y
+         * 返回：number，地图格子y
+         * 操作：当地图渲染被缩放/偏移到右上主区域时，修正点击坐标到默认屏幕坐标系，保证点哪走哪。
+         */
+        var fixedY = chaosViewportToScreenY(this, y);
+        return _Game_Map_canvasToMapY.call(this, fixedY);
+    };
 
     function Window_ChaosHUD() {
         /**
@@ -159,6 +289,7 @@
          * 返回：string，典型值为拼接的“角色名|hp/mp|核心属性”摘要
          * 操作：生成用于判断HUD是否需要刷新的轻量签名。
          */
+        if ($gameSystem && !$gameSystem._chaosHudUseRealStats) return 'placeholder';
         var actor = $gameParty && $gameParty.leader ? $gameParty.leader() : null;
         if (!actor) return 'none';
         return [
@@ -182,7 +313,8 @@
         var w = this.contentsWidth();
 
         var gameTitle = ($dataSystem && $dataSystem.gameTitle) ? $dataSystem.gameTitle : '';
-        var actor = $gameParty && $gameParty.leader ? $gameParty.leader() : null;
+        var useReal = $gameSystem ? !!$gameSystem._chaosHudUseRealStats : false;
+        var actor = useReal && $gameParty && $gameParty.leader ? $gameParty.leader() : null;
 
         this.contents.fontSize = 26;
         this.changeTextColor('#ffffff');
@@ -200,11 +332,12 @@
 
         this.contents.fontSize = 20;
         this.changeTextColor('#cccccc');
-        this.drawText('角色姓名：' + (actor ? actor.name() : '???'), x, y, w, 'left');
+        var displayName = useReal && actor ? actor.name() : CHAOS_GAME_UI.placeholderName;
+        this.drawText('角色姓名：' + displayName, x, y, w, 'left');
         y += this.lineHeight() + 10;
 
-        var hpRate = actor ? (actor.mhp > 0 ? actor.hp / actor.mhp : 0) : 0;
-        var mpRate = actor ? (actor.mmp > 0 ? actor.mp / actor.mmp : 0) : 0;
+        var hpRate = useReal && actor ? (actor.mhp > 0 ? actor.hp / actor.mhp : 0) : 0;
+        var mpRate = useReal && actor ? (actor.mmp > 0 ? actor.mp / actor.mmp : 0) : 0;
 
         this.drawGauge(x, y + 10, w, hpRate, '#ffffff', '#66ccff');
         this.changeTextColor('#ffffff');
@@ -220,10 +353,10 @@
         this.drawHLine(y);
         y += 14;
 
-        var hitText = actor ? Math.round(actor.hit * 100) + '%' : '0%';
-        var evaText = actor ? Math.round(actor.eva * 100) + '%' : '0%';
-        var defText = actor ? String(actor.def) : '0';
-        var blockText = actor ? Math.round(actor.cnt * 100) + '%' : '0%';
+        var hitText = useReal && actor ? Math.round(actor.hit * 100) + '%' : '0';
+        var evaText = useReal && actor ? Math.round(actor.eva * 100) + '%' : '0';
+        var defText = useReal && actor ? String(actor.def) : '0';
+        var blockText = useReal && actor ? Math.round(actor.cnt * 100) + '%' : '0';
 
         this.contents.fontSize = 20;
         var half = Math.floor(w / 2);
@@ -247,6 +380,17 @@
         this.changeTextColor('#ffffff');
         this.drawText(blockText, x + half + 72, y, w - half - 72, 'left');
         y += this.lineHeight();
+    };
+
+    var _Game_System_initialize = Game_System.prototype.initialize;
+    Game_System.prototype.initialize = function() {
+        /**
+         * 参数：无
+         * 返回：void
+         * 操作：为新档初始化HUD占位显示开关；默认显示“???”与0，避免过早暴露数值。
+         */
+        _Game_System_initialize.call(this);
+        this._chaosHudUseRealStats = false;
     };
 
     Window_ChaosHUD.prototype.drawHLine = function(y) {
