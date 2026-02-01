@@ -113,8 +113,9 @@
         mask.beginFill(0xffffff, 1.0);
         mask.drawRect(viewportX, 0, viewportW, viewportH);
         mask.endFill();
-        mask.visible = false;
-        mask.renderable = false;
+        mask.visible = true;
+        mask.renderable = true;
+        mask.alpha = 0.0;
 
         var spriteset = sceneMap._spriteset;
         spriteset.mask = mask;
@@ -535,7 +536,6 @@
          * 操作：判断当前是否允许存档（避免对话进行中/事件执行中等导致异常体验）。
          */
         if (!$gameSystem || !$gameSystem.isSaveEnabled || !$gameSystem.isSaveEnabled()) return false;
-        if ($gameMap && $gameMap.isEventRunning && $gameMap.isEventRunning()) return false;
         if ($gameMessage && $gameMessage.isBusy && $gameMessage.isBusy()) return false;
         if (window.Chaos && window.Chaos.DialogueRuntime && window.Chaos.DialogueRuntime.isActive && window.Chaos.DialogueRuntime.isActive()) return false;
         return true;
@@ -600,8 +600,8 @@
          * 参数：无
          * 返回：void
          * 操作：
-         * - 鼠标/触控点击窗口区域时自动激活并选中当前项
-         * - 点击窗口外或按取消键时退出激活，避免抢占玩家移动输入
+         * - 支持鼠标/触控“单击即触发”按钮，不要求窗口处于 active
+         * - 窗口常态保持 inactive，避免抢占键盘方向键导致人物误移动
          * - 定期刷新可用性（例如事件结束后允许存档）
          */
         Window_Command.prototype.update.call(this);
@@ -610,21 +610,21 @@
             this.refresh();
         }
  
-        if (TouchInput.isTriggered()) {
-            if (this.isTouchedInsideFrame()) {
-                if (!this.active) {
-                    this.activate();
-                    if (this.index() < 0) this.select(0);
-                }
-            } else if (this.active) {
-                this.deactivate();
+        if (TouchInput.isTriggered() && this.isTouchedInsideFrame()) {
+            var x = this.canvasToLocalX(TouchInput.x);
+            var y = this.canvasToLocalY(TouchInput.y);
+            var hitIndex = this.hitTest(x, y);
+            if (hitIndex >= 0) {
+                this.select(hitIndex);
+                this.activate();
+                this.processOk();
                 this.deselect();
             }
-        }
- 
-        if (this.active && Input.isTriggered('cancel')) {
+        } else if (TouchInput.isTriggered()) {
             this.deactivate();
             this.deselect();
+        } else {
+            this.deactivate();
         }
     };
  

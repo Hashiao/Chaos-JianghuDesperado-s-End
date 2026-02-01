@@ -297,7 +297,7 @@
             }
         }
 
-        this._applyActions(node && node.actions ? node.actions : null);
+        this._applyActions(node && node.actions ? node.actions : null, windowMessage);
         if (windowMessage && windowMessage.chaosReplaceMessageLines) {
             windowMessage.chaosReplaceMessageLines(node.lines || []);
         } else if ($gameMessage) {
@@ -307,15 +307,17 @@
         }
     };
 
-    DialogueRuntime.prototype._applyActions = function(actions) {
+    DialogueRuntime.prototype._applyActions = function(actions, windowMessage) {
         /**
          * 参数：
          * - actions: Array<object>|null，典型值 [{type:'mainAreaOverlayMode', mode:'fog'}]
+         * - windowMessage: Window_Message|null，典型值 Scene_Map._messageWindow
          * 返回：void
          * 操作：执行节点动作列表。内置支持：
          * - mainAreaOverlayMode：切换右上主区域遮罩模式
          * - setCharacterStats：写入角色动态数值（存档）
          * - setPlayerInputLocked：锁定/解锁“玩家输入移动”
+         * - endDialogue：结束当前对话接管（解锁后把控制权还给地图探索）
          * 其余动作通过 emit 扩展分发。
          */
         if (!actions || actions.length === 0) return;
@@ -339,6 +341,8 @@
                 if (state) {
                     this._setFlag(state.dialogueId, a.flag, a.value);
                 }
+            } else if (a.type === 'endDialogue') {
+                this.end(windowMessage || null);
             } else {
                 this.emit(a.type, a);
             }
@@ -840,10 +844,13 @@
                     '【**探查-观察四周**】',
                     '注意！当选项带有**符号标记时，说明该行为需要进行一次技能检定',
                     '{难度8}',
-                    '{加成1: 鹰隼之眼 +4}'
+                    '{加成1: 鹰隼之眼 +4}',
+                    '',
+                    '【继续探索】'
                 ],
                 links: {
-                    '**探查-观察四周**': 'SKILL_CHECK_PLACEHOLDER'
+                    '**探查-观察四周**': 'SKILL_CHECK_PLACEHOLDER',
+                    '继续探索': 'END_TO_EXPLORE'
                 }
             },
             SKILL_CHECK_PLACEHOLDER: {
@@ -855,6 +862,22 @@
                     '【返回】'
                 ],
                 links: { '返回': 'FOG_DONE' }
+            },
+            END_TO_EXPLORE: {
+                title: '结束开场-进入探索',
+                speakerUid: '000000',
+                description: '解锁玩家移动并结束对话接管，进入地图探索阶段',
+                actions: [
+                    { type: 'setPlayerInputLocked', locked: false },
+                    { type: 'autoSave', tag: 'S01_解锁移动_进入探索' }
+                ],
+                lines: [
+                    '你深吸一口气，强迫自己冷静下来。',
+                    '现在要做的，是在这片白雾里活下去，并找到摆脱蛊虫的方法。',
+                    '（你可以开始移动探索了）',
+                    '【开始探索】'
+                ],
+                links: { '开始探索': '__END__' }
             }
         }
     });
