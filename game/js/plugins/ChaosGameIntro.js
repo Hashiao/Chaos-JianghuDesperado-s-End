@@ -28,7 +28,8 @@
         fogFadeFrames: 70,
         underlineHeight: 2,
         underlineOffsetY: 4,
-        singleActorOnly: true
+        singleActorOnly: true,
+        useVisionFog: true
     };
 
     function chaosRightPaneX() {
@@ -165,6 +166,10 @@
             this._sprite.opacity = CHAOS_INTRO_CONFIG.overlayOpacity;
             this._fadeIndex = 0;
         } else if (this._mode === 'fog') {
+            if (CHAOS_INTRO_CONFIG.useVisionFog) {
+                this._sprite.visible = false;
+                return;
+            }
             this._sprite.tint = CHAOS_INTRO_CONFIG.fogTint;
             this._sprite.opacity = CHAOS_INTRO_CONFIG.fogOpacity;
             this._fadeIndex = 0;
@@ -200,6 +205,7 @@
             this._sprite.tint = this._fadeToTint;
             this._mode = 'fog';
             if ($gameSystem) $gameSystem._chaosMainAreaOverlayMode = 'fog';
+            if (CHAOS_INTRO_CONFIG.useVisionFog) this._sprite.visible = false;
         }
     };
 

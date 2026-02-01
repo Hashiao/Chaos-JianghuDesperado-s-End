@@ -10,10 +10,29 @@
         sidebarWidth: 360,
         sidebarPadding: 18,
         messageHeightRate: 0.25,
+        mapZoom: 0.75,
         hudUpdateIntervalFrames: 20,
         author: 'Terrigal',
         placeholderName: '???'
     };
+
+    function chaosClampMapZoom(value) {
+        /**
+         * 参数：
+         * - value: number，典型值 0.85 / 1.0 / 1.2
+         * 返回：number，典型值 0.5~1.5 范围内
+         * 操作：约束地图缩放倍率，避免设置过大/过小导致画面不可用。
+         * 业务说明：
+         * - value < 1：地图缩小（视角“更高”，一次看到更多地块）
+         * - value = 1：默认视角
+         * - value > 1：地图放大（视角“更低”，一次看到更少地块）
+         */
+        var n = Number(value);
+        if (!isFinite(n)) n = 1;
+        if (n < 0.5) n = 0.5;
+        if (n > 1.5) n = 1.5;
+        return n;
+    }
 
     function chaosHideWindowFrame(win) {
         /**
@@ -107,10 +126,18 @@
         mapPixW = Math.max(1, mapPixW);
         mapPixH = Math.max(1, mapPixH);
 
+        var zoom = chaosClampMapZoom(CHAOS_GAME_UI.mapZoom);
         var scale = 1;
         if (mapPixW < viewportW || mapPixH < viewportH) {
-            scale = Math.max(viewportW / mapPixW, viewportH / mapPixH);
-            scale = Math.max(1, scale);
+            /**
+             * 参数：无
+             * 返回：void
+             * 操作：小地图默认会“放大填满主区域”以避免大片空白。\n+             * 业务说明：\n+             * - 你可以通过 mapZoom < 1 来“反向拉远镜头”，即使小地图也能看到更多地块；\n+             * - 但当 scale 被拉到 < 1 时，小地图会出现边缘空白，这是预期行为（因为视角更高了）。
+             */
+            var fillScale = Math.max(viewportW / mapPixW, viewportH / mapPixH);
+            scale = fillScale * zoom;
+        } else {
+            scale = zoom;
         }
         spriteset._chaosViewportScale = scale;
         spriteset._chaosViewportX = Math.floor(viewportX + (viewportW - baseW * scale) / 2);
