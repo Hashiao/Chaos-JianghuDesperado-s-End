@@ -516,6 +516,133 @@
         this.contents.fillRect(0, y, this.contentsWidth(), 2, this._lineColor);
     };
 
+    function Window_ChaosHudCommands() {
+        /**
+         * 参数：无（通过 arguments 透传给 initialize）
+         * 返回：void
+         * 操作：左侧HUD底部“存档/读档”按钮窗口构造器。
+         */
+        this.initialize.apply(this, arguments);
+    }
+ 
+    Window_ChaosHudCommands.prototype = Object.create(Window_Command.prototype);
+    Window_ChaosHudCommands.prototype.constructor = Window_ChaosHudCommands;
+ 
+    function chaosIsSaveAllowedNow() {
+        /**
+         * 参数：无
+         * 返回：boolean
+         * 操作：判断当前是否允许存档（避免对话进行中/事件执行中等导致异常体验）。
+         */
+        if (!$gameSystem || !$gameSystem.isSaveEnabled || !$gameSystem.isSaveEnabled()) return false;
+        if ($gameMap && $gameMap.isEventRunning && $gameMap.isEventRunning()) return false;
+        if ($gameMessage && $gameMessage.isBusy && $gameMessage.isBusy()) return false;
+        if (window.Chaos && window.Chaos.DialogueRuntime && window.Chaos.DialogueRuntime.isActive && window.Chaos.DialogueRuntime.isActive()) return false;
+        return true;
+    }
+ 
+    Window_ChaosHudCommands.prototype.initialize = function(x, y, width) {
+        /**
+         * 参数：
+         * - x:number 典型值 12
+         * - y:number 典型值 0（后续根据窗口高度定位到底部）
+         * - width:number 典型值 sidebarWidth - 24
+         * 返回：void
+         * 操作：初始化按钮窗口；默认不抢键盘焦点，但支持鼠标/触控点击激活。
+         */
+        this._windowWidth = width;
+        Window_Command.prototype.initialize.call(this, x, y);
+        this.setBackgroundType(2);
+        chaosHideWindowFrame(this);
+        this.deactivate();
+        this.deselect();
+    };
+ 
+    Window_ChaosHudCommands.prototype.windowWidth = function() {
+        /**
+         * 参数：无
+         * 返回：number
+         * 操作：固定窗口宽度。
+         */
+        return this._windowWidth;
+    };
+ 
+    Window_ChaosHudCommands.prototype.numVisibleRows = function() {
+        /**
+         * 参数：无
+         * 返回：number，典型值 2
+         * 操作：声明可见行数。
+         */
+        return 2;
+    };
+ 
+    Window_ChaosHudCommands.prototype.standardPadding = function() {
+        /**
+         * 参数：无
+         * 返回：number，典型值 10
+         * 操作：按钮窗口内边距。
+         */
+        return 10;
+    };
+ 
+    Window_ChaosHudCommands.prototype.makeCommandList = function() {
+        /**
+         * 参数：无
+         * 返回：void
+         * 操作：构建“存档/读档”两个命令；存档在不允许时自动禁用。
+         */
+        this.addCommand('存档', 'save', chaosIsSaveAllowedNow());
+        this.addCommand('读档', 'load', DataManager && DataManager.isAnySavefileExists ? DataManager.isAnySavefileExists() : true);
+    };
+ 
+    Window_ChaosHudCommands.prototype.update = function() {
+        /**
+         * 参数：无
+         * 返回：void
+         * 操作：
+         * - 鼠标/触控点击窗口区域时自动激活并选中当前项
+         * - 点击窗口外或按取消键时退出激活，避免抢占玩家移动输入
+         * - 定期刷新可用性（例如事件结束后允许存档）
+         */
+        Window_Command.prototype.update.call(this);
+ 
+        if (Graphics.frameCount % 20 === 0) {
+            this.refresh();
+        }
+ 
+        if (TouchInput.isTriggered()) {
+            if (this.isTouchedInsideFrame()) {
+                if (!this.active) {
+                    this.activate();
+                    if (this.index() < 0) this.select(0);
+                }
+            } else if (this.active) {
+                this.deactivate();
+                this.deselect();
+            }
+        }
+ 
+        if (this.active && Input.isTriggered('cancel')) {
+            this.deactivate();
+            this.deselect();
+        }
+    };
+ 
+    Window_ChaosHudCommands.prototype.drawItem = function(index) {
+        /**
+         * 参数：
+         * - index:number 典型值 0 或 1
+         * 返回：void
+         * 操作：绘制按钮文本；与标题界面保持一致的扁平文本风格。
+         */
+        var rect = this.itemRectForText(index);
+        this.resetTextColor();
+        this.changePaintOpacity(this.isCommandEnabled(index));
+        this.contents.fontSize = 20;
+        this.drawText(this.commandName(index), rect.x, rect.y, rect.width, 'left');
+        this.changePaintOpacity(true);
+    };
+ 
     function chaosApplyMessageLayout(win) {
         /**
          * 参数：
@@ -543,6 +670,14 @@
 
         this._chaosHudWindow = new Window_ChaosHUD(0, 0, CHAOS_GAME_UI.sidebarWidth, Graphics.boxHeight);
         this.addWindow(this._chaosHudWindow);
+ 
+        var cmdW = CHAOS_GAME_UI.sidebarWidth - 24;
+        var cmdX = 12;
+        this._chaosHudCommandWindow = new Window_ChaosHudCommands(cmdX, 0, cmdW);
+        this._chaosHudCommandWindow.y = Graphics.boxHeight - this._chaosHudCommandWindow.height - 18;
+        this._chaosHudCommandWindow.setHandler('save', this.commandChaosHudSave.bind(this));
+        this._chaosHudCommandWindow.setHandler('load', this.commandChaosHudLoad.bind(this));
+        this.addWindow(this._chaosHudCommandWindow);
 
         if (this._mapNameWindow) {
             this._mapNameWindow.x = chaosRightPaneX();
@@ -553,6 +688,36 @@
         }
 
         chaosApplyMapViewport(this);
+    };
+ 
+    Scene_Map.prototype.commandChaosHudSave = function() {
+        /**
+         * 参数：无
+         * 返回：void
+         * 操作：从地图左侧HUD按钮打开存档界面；不允许存档时不执行。
+         */
+        if (!chaosIsSaveAllowedNow()) {
+            if (this._chaosHudCommandWindow) this._chaosHudCommandWindow.activate();
+            return;
+        }
+        if (this._chaosHudCommandWindow) {
+            this._chaosHudCommandWindow.deactivate();
+            this._chaosHudCommandWindow.deselect();
+        }
+        SceneManager.push(Scene_Save);
+    };
+ 
+    Scene_Map.prototype.commandChaosHudLoad = function() {
+        /**
+         * 参数：无
+         * 返回：void
+         * 操作：从地图左侧HUD按钮打开读档界面。
+         */
+        if (this._chaosHudCommandWindow) {
+            this._chaosHudCommandWindow.deactivate();
+            this._chaosHudCommandWindow.deselect();
+        }
+        SceneManager.push(Scene_Load);
     };
 
     var _Scene_Map_createSpriteset = Scene_Map.prototype.createSpriteset;
