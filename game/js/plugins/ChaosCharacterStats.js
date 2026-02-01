@@ -34,11 +34,24 @@
          * - value: any，典型值 3 / "3" / null
          * - fallback: number，典型值 -1
          * 返回：number，32位整数；若 value 无法转换则返回 fallback
-         * 操作：把输入安全转换为 32 位整数。用于确保“所有属性都是 int32”。
+         * 操作：把输入安全转换为 32 位整数。用于 HP/MP 这类“必须是整数”的数值字段。
          */
         var n = Number(value);
         if (!isFinite(n)) return fallback;
         return n | 0;
+    }
+
+    function toFloat(value, fallback) {
+        /**
+         * 参数：
+         * - value: any，典型值 0.15 / "0.15" / 3 / null
+         * - fallback: number，典型值 -1
+         * 返回：number，浮点数；若 value 无法转换则返回 fallback
+         * 操作：把输入安全转换为浮点数。用于 hit/def/eva/blk（目前只用于剧情/显示，不参与战斗）。
+         */
+        var n = Number(value);
+        if (!isFinite(n)) return fallback;
+        return n;
     }
 
     function defaultStatsTemplate() {
@@ -95,10 +108,10 @@
                 tpl.hp = toInt32(profile.hp, tpl.hp);
                 tpl.maxMp = toInt32(profile.maxMp, tpl.maxMp);
                 tpl.mp = toInt32(profile.mp, tpl.mp);
-                tpl.hit = toInt32(profile.hit, tpl.hit);
-                tpl.def = toInt32(profile.def, tpl.def);
-                tpl.eva = toInt32(profile.eva, tpl.eva);
-                tpl.blk = toInt32(profile.blk, tpl.blk);
+                tpl.hit = toFloat(profile.hit, tpl.hit);
+                tpl.def = toFloat(profile.def, tpl.def);
+                tpl.eva = toFloat(profile.eva, tpl.eva);
+                tpl.blk = toFloat(profile.blk, tpl.blk);
             }
             state.byUid[key] = tpl;
         }
@@ -111,7 +124,9 @@
          * - uid: string|number，典型值 '000000'
          * - patch: object，典型值 {hit:3, def:4}
          * 返回：object|null，返回更新后的 stats 对象
-         * 操作：对指定角色 UID 的数值进行“局部更新”。未提供的字段不变；提供的字段按 int32 写入。
+         * 操作：对指定角色 UID 的数值进行“局部更新”。未提供的字段不变；提供的字段按字段类型写入：
+         * - maxHp/hp/maxMp/mp：int32
+         * - hit/def/eva/blk：float（负数仍表示无效）
          */
         var stats = ensureStatsForUid(uid);
         if (!stats) return null;
@@ -121,10 +136,10 @@
         if (patch.hp !== undefined) stats.hp = toInt32(patch.hp, stats.hp);
         if (patch.maxMp !== undefined) stats.maxMp = toInt32(patch.maxMp, stats.maxMp);
         if (patch.mp !== undefined) stats.mp = toInt32(patch.mp, stats.mp);
-        if (patch.hit !== undefined) stats.hit = toInt32(patch.hit, stats.hit);
-        if (patch.def !== undefined) stats.def = toInt32(patch.def, stats.def);
-        if (patch.eva !== undefined) stats.eva = toInt32(patch.eva, stats.eva);
-        if (patch.blk !== undefined) stats.blk = toInt32(patch.blk, stats.blk);
+        if (patch.hit !== undefined) stats.hit = toFloat(patch.hit, stats.hit);
+        if (patch.def !== undefined) stats.def = toFloat(patch.def, stats.def);
+        if (patch.eva !== undefined) stats.eva = toFloat(patch.eva, stats.eva);
+        if (patch.blk !== undefined) stats.blk = toFloat(patch.blk, stats.blk);
         return stats;
     }
 
@@ -154,4 +169,3 @@
         ensureStatsState();
     };
 })();
-

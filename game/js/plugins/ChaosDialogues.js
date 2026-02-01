@@ -77,6 +77,22 @@
         return $gameSystem._chaosDialogueState;
     }
 
+    function ensureDialogueFlagsState() {
+        /**
+         * 参数：无
+         * 返回：object|null，典型值 { INTRO: { fog_near:true } }
+         * 操作：确保 $gameSystem 上存在“对话内标记(flags)”容器，并返回它。
+         * 说明：
+         * - flags 用于实现“需要先做完A+B，才出现C”的门控逻辑；
+         * - 每段对话以 dialogueId 作为一级键；每个 flagName 作为二级键。
+         */
+        if (!$gameSystem) return null;
+        if (!$gameSystem._chaosDialogueFlags) {
+            $gameSystem._chaosDialogueFlags = {};
+        }
+        return $gameSystem._chaosDialogueFlags;
+    }
+
     function DialogueRuntime() {
         /**
          * 参数：无
@@ -165,7 +181,66 @@
         state.active = true;
         state.dialogueId = String(dialogueId || '');
         state.nodeId = String(nodeId || '');
+        this._resetFlagsForDialogue(state.dialogueId);
         this._enterNode(windowMessage);
+    };
+
+    DialogueRuntime.prototype._resetFlagsForDialogue = function(dialogueId) {
+        /**
+         * 参数：
+         * - dialogueId: string，典型值 'INTRO'
+         * 返回：void
+         * 操作：重置指定对话的 flags（用于从头开始一段对话，避免旧存档残留影响门控）。
+         */
+        var flags = ensureDialogueFlagsState();
+        if (!flags) return;
+        flags[String(dialogueId)] = {};
+    };
+
+    DialogueRuntime.prototype._getFlag = function(dialogueId, flagName) {
+        /**
+         * 参数：
+         * - dialogueId: string，典型值 'INTRO'
+         * - flagName: string，典型值 'fog_near'
+         * 返回：boolean，典型值 true/false
+         * 操作：读取某对话内的标记值；不存在则返回 false。
+         */
+        var flags = ensureDialogueFlagsState();
+        if (!flags) return false;
+        var d = flags[String(dialogueId)];
+        if (!d) return false;
+        return !!d[String(flagName)];
+    };
+
+    DialogueRuntime.prototype._setFlag = function(dialogueId, flagName, value) {
+        /**
+         * 参数：
+         * - dialogueId: string，典型值 'INTRO'
+         * - flagName: string，典型值 'fog_near'
+         * - value: boolean，典型值 true/false
+         * 返回：void
+         * 操作：设置某对话内的标记值（写入存档）。
+         */
+        var flags = ensureDialogueFlagsState();
+        if (!flags) return;
+        var key = String(dialogueId);
+        if (!flags[key]) flags[key] = {};
+        flags[key][String(flagName)] = !!value;
+    };
+
+    DialogueRuntime.prototype._hasAllFlags = function(dialogueId, flags) {
+        /**
+         * 参数：
+         * - dialogueId: string，典型值 'INTRO'
+         * - flags: Array<string>，典型值 ['fog_near','fog_far']
+         * 返回：boolean，典型值 true/false
+         * 操作：判断指定 flags 是否全部为 true（用于门控跳转）。
+         */
+        if (!flags || flags.length === 0) return true;
+        for (var i = 0; i < flags.length; i++) {
+            if (!this._getFlag(dialogueId, flags[i])) return false;
+        }
+        return true;
     };
 
     DialogueRuntime.prototype.end = function(windowMessage) {
@@ -211,6 +286,17 @@
         var ctx = this.current();
         if (!ctx) return;
         var node = ctx.node;
+
+        if (node && node.gotoIfAllFlags) {
+            var cond = node.gotoIfAllFlags;
+            var flags = cond.flags || [];
+            var target = cond.nodeId || '';
+            if (target && target !== (ensureDialogueState() ? ensureDialogueState().nodeId : '') && this._hasAllFlags(ctx.script.id, flags)) {
+                this.goto(target, windowMessage);
+                return;
+            }
+        }
+
         this._applyActions(node && node.actions ? node.actions : null);
         if (windowMessage && windowMessage.chaosReplaceMessageLines) {
             windowMessage.chaosReplaceMessageLines(node.lines || []);
@@ -248,6 +334,11 @@
                 }
             } else if (a.type === 'setPlayerInputLocked') {
                 if ($gameSystem) $gameSystem._chaosPlayerInputLocked = !!a.locked;
+            } else if (a.type === 'setDialogueFlag') {
+                var state = ensureDialogueState();
+                if (state) {
+                    this._setFlag(state.dialogueId, a.flag, a.value);
+                }
             } else {
                 this.emit(a.type, a);
             }
@@ -659,7 +750,7 @@
                 links: {
                     '检查身体': 'CHOICE_CHECK_BODY',
                     '观察四周': 'CHOICE_LOOK_AROUND',
-                    '爬起来': 'CHOICE_GET_UP'
+                    '爬起来': 'GET_UP_1'
                 }
             },
             CHOICE_CHECK_BODY: {
@@ -683,15 +774,87 @@
                 ],
                 links: { '返回': 'CHOICE_1' }
             },
-            CHOICE_GET_UP: {
-                title: '选择-爬起来',
+            GET_UP_1: {
+                title: '爬起来-1',
                 speakerUid: '000000',
-                description: '主干分支暂时留空；目前仅返回选项页',
+                description: '爬起来后的第一段文字；点击对话框推进',
                 lines: [
-                    '{（主干分支暂时留空）}',
+                    '你双手撑地，弓起身，慢慢地爬了起来。',
+                    '你发现自己站在白茫茫的迷雾之中。'
+                ],
+                nextOnClick: 'GET_UP_2'
+            },
+            GET_UP_2: {
+                title: '爬起来-2',
+                speakerUid: '000000',
+                description: '对白说明迷雾视野；点击对话框推进到“5米内/外”选项',
+                lines: [
+                    '这白雾有点诡异，你仅能清晰看见约5米内的事物，超出5米开外的景色便模糊不清。不过当你凝神时，视野稍微变远了些——看来修为越高，受到的视野压制便越低，对普通人来说估计看清3米内已是极限'
+                ],
+                nextOnClick: 'FOG_QUERY'
+            },
+            FOG_QUERY: {
+                title: '迷雾探查-选择',
+                speakerUid: '000000',
+                description: '出现“5米内/外”两个选项；两者都点过后自动进入“技能检定选项”页',
+                gotoIfAllFlags: { flags: ['fog_near_done', 'fog_far_done'], nodeId: 'FOG_DONE' },
+                lines: [
+                    '【5米内有什么？】【5米外呢？】'
+                ],
+                links: {
+                    '5米内有什么？': 'FOG_NEAR',
+                    '5米外呢？': 'FOG_FAR'
+                }
+            },
+            FOG_NEAR: {
+                title: '迷雾探查-5米内',
+                speakerUid: '000000',
+                description: '查看5米内信息；标记完成并返回选择页',
+                actions: [
+                    { type: 'setDialogueFlag', flag: 'fog_near_done', value: true }
+                ],
+                lines: [
+                    '除了你刚刚趴着的地方的草丛被压塌了之外，附近都布满了脚踝高的草丛，似乎没什么值得注意的。',
                     '【返回】'
                 ],
-                links: { '返回': 'CHOICE_1' }
+                links: { '返回': 'FOG_QUERY' }
+            },
+            FOG_FAR: {
+                title: '迷雾探查-5米外',
+                speakerUid: '000000',
+                description: '查看5米外信息；标记完成并返回选择页',
+                actions: [
+                    { type: 'setDialogueFlag', flag: 'fog_far_done', value: true }
+                ],
+                lines: [
+                    '你仅能依稀看出周遭是一片茂密的树林，似乎你还在麒麟山上？',
+                    '【返回】'
+                ],
+                links: { '返回': 'FOG_QUERY' }
+            },
+            FOG_DONE: {
+                title: '迷雾探查-完成',
+                speakerUid: '000000',
+                description: '5米内外均探查后显示技能检定选项；检定逻辑暂留空',
+                lines: [
+                    '【**探查-观察四周**】',
+                    '注意！当选项带有**符号标记时，说明该行为需要进行一次技能检定',
+                    '{难度8}',
+                    '{加成1: 鹰隼之眼 +4}'
+                ],
+                links: {
+                    '**探查-观察四周**': 'SKILL_CHECK_PLACEHOLDER'
+                }
+            },
+            SKILL_CHECK_PLACEHOLDER: {
+                title: '技能检定-占位',
+                speakerUid: '000000',
+                description: '检定流程后续再实现；目前只提供返回',
+                lines: [
+                    '{（检定暂未实现）}',
+                    '【返回】'
+                ],
+                links: { '返回': 'FOG_DONE' }
             }
         }
     });

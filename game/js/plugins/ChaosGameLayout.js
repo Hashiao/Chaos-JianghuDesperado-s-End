@@ -236,6 +236,44 @@
         this.initialize.apply(this, arguments);
     }
 
+    function chaosGetUidBridge() {
+        /**
+         * 参数：无
+         * 返回：object|null，典型值 Chaos.UidBridge
+         * 操作：获取 UID↔Actor 桥接器（如果未加载则返回 null）。
+         */
+        if (window.Chaos && window.Chaos.UidBridge) return window.Chaos.UidBridge;
+        return null;
+    }
+
+    function chaosFormatNumber(value) {
+        /**
+         * 参数：
+         * - value: number，典型值 3 / 3.25 / -1
+         * 返回：string，典型值 '3' / '3.25' / '0'
+         * 操作：把数值格式化为可显示文本：负数或非法数显示为 '0'；整数去掉小数点；小数保留两位。
+         */
+        var n = Number(value);
+        if (!isFinite(n) || n < 0) return '0';
+        if ((n | 0) === n) return String(n | 0);
+        return n.toFixed(2);
+    }
+
+    function chaosSafeRate(cur, max) {
+        /**
+         * 参数：
+         * - cur: number，典型值 50 / -1
+         * - max: number，典型值 100 / -1
+         * 返回：number，典型值 0..1
+         * 操作：计算 cur/max；当任一为无效值（负数/0）时返回 0。
+         */
+        var c = Number(cur);
+        var m = Number(max);
+        if (!isFinite(c) || !isFinite(m)) return 0;
+        if (c < 0 || m <= 0) return 0;
+        return c / m;
+    }
+
     Window_ChaosHUD.prototype = Object.create(Window_Base.prototype);
     Window_ChaosHUD.prototype.constructor = Window_ChaosHUD;
 
@@ -289,16 +327,40 @@
          * 返回：string，典型值为拼接的“角色名|hp/mp|核心属性”摘要
          * 操作：生成用于判断HUD是否需要刷新的轻量签名。
          */
-        if ($gameSystem && !$gameSystem._chaosHudUseRealStats) return 'placeholder';
-        var actor = $gameParty && $gameParty.leader ? $gameParty.leader() : null;
-        if (!actor) return 'none';
+        var uid = this.targetUid();
+        var bridge = chaosGetUidBridge();
+        var displayName = bridge ? bridge.getDisplayName(uid) : CHAOS_GAME_UI.placeholderName;
+        var useReal = $gameSystem ? !!$gameSystem._chaosHudUseRealStats : false;
+
+        if (useReal) {
+            var actor = $gameParty && $gameParty.leader ? $gameParty.leader() : null;
+            if (!actor) return 'none';
+            return [
+                displayName,
+                actor.hp, actor.mhp,
+                actor.mp, actor.mmp,
+                actor.atk, actor.def, actor.mat, actor.mdf, actor.agi, actor.luk,
+                actor.hit, actor.eva, actor.cnt
+            ].join('|');
+        }
+
+        var stats = bridge ? bridge.getStats(uid) : null;
+        if (!stats) return 'none';
         return [
-            actor.name(),
-            actor.hp, actor.mhp,
-            actor.mp, actor.mmp,
-            actor.atk, actor.def, actor.mat, actor.mdf, actor.agi, actor.luk,
-            actor.hit, actor.eva, actor.cnt
+            displayName,
+            stats.hp, stats.maxHp,
+            stats.mp, stats.maxMp,
+            stats.hit, stats.def, stats.eva, stats.blk
         ].join('|');
+    };
+
+    Window_ChaosHUD.prototype.targetUid = function() {
+        /**
+         * 参数：无
+         * 返回：string，典型值 '000000'
+         * 操作：返回 HUD 当前要显示的“角色UID”。目前固定为主角UID；后续扩展队伍/切换目标时只改这里。
+         */
+        return '000000';
     };
 
     Window_ChaosHUD.prototype.refresh = function() {
@@ -315,6 +377,12 @@
         var gameTitle = ($dataSystem && $dataSystem.gameTitle) ? $dataSystem.gameTitle : '';
         var useReal = $gameSystem ? !!$gameSystem._chaosHudUseRealStats : false;
         var actor = useReal && $gameParty && $gameParty.leader ? $gameParty.leader() : null;
+        var uid = this.targetUid();
+        var bridge = chaosGetUidBridge();
+        if (bridge && bridge.initStatsFromActorIfInvalid) {
+            bridge.initStatsFromActorIfInvalid(uid);
+        }
+        var stats = bridge ? bridge.getStats(uid) : null;
 
         this.contents.fontSize = 26;
         this.changeTextColor('#ffffff');
@@ -332,12 +400,19 @@
 
         this.contents.fontSize = 20;
         this.changeTextColor('#cccccc');
-        var displayName = useReal && actor ? actor.name() : CHAOS_GAME_UI.placeholderName;
+        var displayName = bridge ? bridge.getDisplayName(uid) : (useReal && actor ? actor.name() : CHAOS_GAME_UI.placeholderName);
         this.drawText('角色姓名：' + displayName, x, y, w, 'left');
         y += this.lineHeight() + 10;
 
-        var hpRate = useReal && actor ? (actor.mhp > 0 ? actor.hp / actor.mhp : 0) : 0;
-        var mpRate = useReal && actor ? (actor.mmp > 0 ? actor.mp / actor.mmp : 0) : 0;
+        var hpRate = 0;
+        var mpRate = 0;
+        if (useReal && actor) {
+            hpRate = actor.mhp > 0 ? actor.hp / actor.mhp : 0;
+            mpRate = actor.mmp > 0 ? actor.mp / actor.mmp : 0;
+        } else if (stats) {
+            hpRate = chaosSafeRate(stats.hp, stats.maxHp);
+            mpRate = chaosSafeRate(stats.mp, stats.maxMp);
+        }
 
         this.drawGauge(x, y + 10, w, hpRate, '#ffffff', '#66ccff');
         this.changeTextColor('#ffffff');
@@ -353,10 +428,21 @@
         this.drawHLine(y);
         y += 14;
 
-        var hitText = useReal && actor ? Math.round(actor.hit * 100) + '%' : '0';
-        var evaText = useReal && actor ? Math.round(actor.eva * 100) + '%' : '0';
-        var defText = useReal && actor ? String(actor.def) : '0';
-        var blockText = useReal && actor ? Math.round(actor.cnt * 100) + '%' : '0';
+        var hitText = '0';
+        var evaText = '0';
+        var defText = '0';
+        var blockText = '0';
+        if (useReal && actor) {
+            hitText = Math.round(actor.hit * 100) + '%';
+            evaText = Math.round(actor.eva * 100) + '%';
+            defText = String(actor.def);
+            blockText = Math.round(actor.cnt * 100) + '%';
+        } else if (stats) {
+            hitText = chaosFormatNumber(stats.hit);
+            evaText = chaosFormatNumber(stats.eva);
+            defText = chaosFormatNumber(stats.def);
+            blockText = chaosFormatNumber(stats.blk);
+        }
 
         this.contents.fontSize = 20;
         var half = Math.floor(w / 2);

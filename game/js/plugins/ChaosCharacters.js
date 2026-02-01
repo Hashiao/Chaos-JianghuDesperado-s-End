@@ -70,6 +70,7 @@
         Chaos.Characters.register({
             uid: '000000',
             code: 'protagonist',
+            actorId: 1,
             publicName: '???',
             realName: 'ABC',
             faction: '',
