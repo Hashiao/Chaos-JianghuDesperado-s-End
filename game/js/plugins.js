@@ -9,5 +9,6 @@ var $plugins =
 {"name":"ChaosCharacterStats","status":true,"description":"","parameters":{}},
 {"name":"ChaosDialogues","status":true,"description":"","parameters":{}},
 {"name":"ChaosGameLayout","status":true,"description":"","parameters":{}},
-{"name":"ChaosGameIntro","status":true,"description":"","parameters":{}}
+{"name":"ChaosGameIntro","status":true,"description":"","parameters":{}},
+{"name":"ChaosVisionFog","status":true,"description":"","parameters":{}}
 ];
