@@ -7,6 +7,8 @@ var $plugins =
 {"name":"ChaosTitleScene","status":true,"description":"","parameters":{}},
 {"name":"ChaosCharacters","status":true,"description":"","parameters":{}},
 {"name":"ChaosCharacterStats","status":true,"description":"","parameters":{}},
+{"name":"ChaosDebugConsole","status":true,"description":"","parameters":{}},
+{"name":"ChaosSkillChecks","status":true,"description":"","parameters":{}},
 {"name":"ChaosDialogues","status":true,"description":"","parameters":{}},
 {"name":"ChaosSaveSystem","status":true,"description":"","parameters":{}},
 {"name":"ChaosChapter_AreaA","status":true,"description":"","parameters":{}},

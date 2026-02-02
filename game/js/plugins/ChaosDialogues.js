@@ -341,6 +341,55 @@
                 if (state) {
                     this._setFlag(state.dialogueId, a.flag, a.value);
                 }
+            } else if (a.type === 'skillCheck') {
+                var runtime = this;
+                var checkSpec = a.check || {};
+                var successNode = a.successNode || '';
+                var failNode = a.failNode || '';
+                var resolved = false;
+                var onDone = function(result) {
+                    if (resolved) return;
+                    resolved = true;
+                    if (root.Chaos && root.Chaos.DebugConsole && root.Chaos.DebugConsole.log) root.Chaos.DebugConsole.log('skillCheck done', result);
+                    if (!result) return;
+                    if (!runtime.isActive()) return;
+                    if (result.success && successNode) {
+                        runtime.goto(successNode, windowMessage || null);
+                    } else if (!result.success && failNode) {
+                        runtime.goto(failNode, windowMessage || null);
+                    }
+                };
+                var fallbackResolve = function() {
+                    if (resolved) return;
+                    if (root.Chaos && root.Chaos.DebugConsole && root.Chaos.DebugConsole.warn) root.Chaos.DebugConsole.warn('skillCheck fallbackResolve');
+                    var roll = Math.floor(Math.random() * 20) + 1;
+                    var baseBonus = Number(checkSpec.baseBonus) || 0;
+                    var difficulty = Number(checkSpec.difficulty) || 0;
+                    var crit = '';
+                    var success = false;
+                    if (roll === 1) { crit = 'crit_fail'; success = false; }
+                    else if (roll === 20) { crit = 'crit_success'; success = true; }
+                    else { success = (roll + baseBonus) >= difficulty; }
+                    onDone({ roll: roll, baseBonus: baseBonus, difficulty: difficulty, total: roll + baseBonus, success: !!success, crit: crit, type: String(checkSpec.type || '') });
+                };
+                try {
+                    var totalFrames = (Number(checkSpec.durationFrames) || 180) + 24 + 60;
+                    var timeoutMs = Math.max(1200, Math.floor((totalFrames / 60) * 1000) + 600);
+                    setTimeout(function() { fallbackResolve(); }, timeoutMs);
+                } catch (e) {
+                }
+                try {
+                    if (root.Chaos && root.Chaos.Checks && root.Chaos.Checks.start) {
+                        if (root.Chaos && root.Chaos.DebugConsole && root.Chaos.DebugConsole.log) root.Chaos.DebugConsole.log('skillCheck start', checkSpec);
+                        var started = root.Chaos.Checks.start(checkSpec, onDone);
+                        if (started === false) fallbackResolve();
+                    } else {
+                        this.emit('skillCheck', { type: 'skillCheck', check: checkSpec, successNode: successNode, failNode: failNode, done: onDone });
+                        fallbackResolve();
+                    }
+                } catch (e) {
+                    fallbackResolve();
+                }
             } else if (a.type === 'endDialogue') {
                 this.end(windowMessage || null);
             } else {
@@ -841,27 +890,56 @@
                 speakerUid: '000000',
                 description: '5米内外均探查后显示技能检定选项；检定逻辑暂留空',
                 lines: [
-                    '【**探查-观察四周**】',
-                    '注意！当选项带有**符号标记时，说明该行为需要进行一次技能检定',
+                    '你屏住呼吸，尝试在白雾里分辨更多线索。',
                     '{难度8}',
                     '{加成1: 鹰隼之眼 +4}',
-                    '',
-                    '【继续探索】'
+                    '【进行检定】'
                 ],
                 links: {
-                    '**探查-观察四周**': 'SKILL_CHECK_PLACEHOLDER',
-                    '继续探索': 'END_TO_EXPLORE'
+                    '进行检定': 'CHECK_PERCEPTION_1'
                 }
             },
-            SKILL_CHECK_PLACEHOLDER: {
-                title: '技能检定-占位',
+            CHECK_PERCEPTION_1: {
+                title: '检定-感知',
                 speakerUid: '000000',
-                description: '检定流程后续再实现；目前只提供返回',
-                lines: [
-                    '{（检定暂未实现）}',
-                    '【返回】'
+                description: '第一次检定：感知检定（鹰隼之眼+4，难度8）',
+                actions: [
+                    { type: 'skillCheck', check: { type: 'per', difficulty: 8, baseBonus: 4, bonusName: '鹰隼之眼' }, successNode: 'CHECK_PERCEPTION_1_OK', failNode: 'CHECK_PERCEPTION_1_FAIL' }
                 ],
-                links: { '返回': 'FOG_DONE' }
+                lines: [
+                    '{（感知检定中……）}'
+                ]
+            },
+            CHECK_PERCEPTION_1_OK: {
+                title: '检定-成功',
+                speakerUid: '000000',
+                description: '感知检定成功：发现草药',
+                lines: [
+                    '你发现几株翠绿的草药在杂草中若隐若现。',
+                    '久经江湖的你轻易认出这是一种常见的、具有养血活血功效的药材。',
+                    '【采集药草】'
+                ],
+                links: { '采集药草': 'CHECK_PERCEPTION_1_COLLECT_PLACEHOLDER' }
+            },
+            CHECK_PERCEPTION_1_COLLECT_PLACEHOLDER: {
+                title: '采集-占位',
+                speakerUid: '000000',
+                description: '采集逻辑暂留空',
+                lines: [
+                    '{（采集逻辑暂未实现）}',
+                    '【开始探索】'
+                ],
+                links: { '开始探索': 'END_TO_EXPLORE' }
+            },
+            CHECK_PERCEPTION_1_FAIL: {
+                title: '检定-失败',
+                speakerUid: '000000',
+                description: '感知检定失败：没有发现',
+                lines: [
+                    '你四处张望，此处没什么特别的地方了。',
+                    '【开始探索】'
+                ],
+                links: { '开始探索': 'END_TO_EXPLORE' }
             },
             END_TO_EXPLORE: {
                 title: '结束开场-进入探索',
