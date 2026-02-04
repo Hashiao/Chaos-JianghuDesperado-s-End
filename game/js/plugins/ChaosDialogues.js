@@ -350,7 +350,7 @@
                 var onDone = function(result) {
                     if (resolved) return;
                     resolved = true;
-                    if (root.Chaos && root.Chaos.DebugConsole && root.Chaos.DebugConsole.log) root.Chaos.DebugConsole.log('skillCheck done', result);
+                    if (root.Chaos && root.Chaos.Log && root.Chaos.Log.info) root.Chaos.Log.info('skillCheck done', result);
                     if (!result) return;
                     if (!runtime.isActive()) return;
                     if (result.success && successNode) {
@@ -361,7 +361,7 @@
                 };
                 var fallbackResolve = function() {
                     if (resolved) return;
-                    if (root.Chaos && root.Chaos.DebugConsole && root.Chaos.DebugConsole.warn) root.Chaos.DebugConsole.warn('skillCheck fallbackResolve');
+                    if (root.Chaos && root.Chaos.Log && root.Chaos.Log.warning) root.Chaos.Log.warning('skillCheck fallbackResolve');
                     var roll = Math.floor(Math.random() * 20) + 1;
                     var baseBonus = Number(checkSpec.baseBonus) || 0;
                     var difficulty = Number(checkSpec.difficulty) || 0;
@@ -380,7 +380,7 @@
                 }
                 try {
                     if (root.Chaos && root.Chaos.Checks && root.Chaos.Checks.start) {
-                        if (root.Chaos && root.Chaos.DebugConsole && root.Chaos.DebugConsole.log) root.Chaos.DebugConsole.log('skillCheck start', checkSpec);
+                        if (root.Chaos && root.Chaos.Log && root.Chaos.Log.debug) root.Chaos.Log.debug('skillCheck start', checkSpec);
                         var started = root.Chaos.Checks.start(checkSpec, onDone);
                         if (started === false) fallbackResolve();
                     } else {

@@ -286,7 +286,7 @@
         var scene = SceneManager && SceneManager._scene ? SceneManager._scene : null;
         var overlay = ensureOverlayWindow(scene);
         if (!overlay) {
-            if (Chaos.DebugConsole && Chaos.DebugConsole.warn) Chaos.DebugConsole.warn('Checks.start: no overlay window (scene missing addWindow)', spec);
+            if (Chaos.Log && Chaos.Log.warning) Chaos.Log.warning('Checks.start: no overlay window (scene missing addWindow)', spec);
             var check = spec || {};
             var roll = randInt(1, 20);
             var baseBonus = Number(check.baseBonus) || 0;
@@ -300,7 +300,7 @@
             if (done) done(result);
             return false;
         }
-        if (Chaos.DebugConsole && Chaos.DebugConsole.log) Chaos.DebugConsole.log('Checks.start: begin', spec);
+        if (Chaos.Log && Chaos.Log.debug) Chaos.Log.debug('Checks.start: begin', spec);
         return overlay.start(spec, done);
     };
  
