@@ -71,40 +71,45 @@
         return '[Unprintable]';
     }
  
-    var RE_STACK_FILE_URL = new RegExp('(file:///.*?\\.js):(\\d+):(\\d+)', 'i');
-    var RE_STACK_WIN_PATH = new RegExp('([A-Za-z]:\\\\.*?\\.js):(\\d+):(\\d+)', 'i');
+    var RE_STACK_ANY_PATH = new RegExp('((?:file:///|https?://|[A-Za-z]:\\\\|/).*?\\.js):(\\d+):(\\d+)', 'i');
  
     function parseCaller() {
         var stack = '';
         try { stack = (new Error()).stack || ''; } catch (e) {}
-        if (!stack) return { file: '', line: '', col: '' };
+        if (!stack) return { file: '', line: '', col: '', func: '' };
         var lines = stack.split('\n');
+        var first = null;
         for (var i = 2; i < lines.length; i++) {
             var s = String(lines[i] || '').trim();
             if (!s) continue;
-            if (s.indexOf('ChaosDebugConsole') >= 0) continue;
-            if (s.indexOf('Chaos.Log') >= 0) continue;
-            if (s.indexOf('Chaos.DebugConsole') >= 0) continue;
-            var m = s.match(RE_STACK_FILE_URL) || s.match(RE_STACK_WIN_PATH);
+            var m = s.match(RE_STACK_ANY_PATH);
             if (m) {
                 var filePath = m[1];
                 var fileName = filePath.split('/').pop().split('\\\\').pop();
-                return { file: fileName, line: m[2], col: m[3] };
+                var funcName = '';
+                var fm = s.match(/^\s*at\s+([^\s(]+)\s*\(/i);
+                if (fm) funcName = fm[1];
+                var hit = { file: fileName, line: m[2], col: m[3], func: funcName };
+                if (!first) first = hit;
+                if (String(fileName).toLowerCase() !== 'chaosdebugconsole.js') return hit;
             }
         }
-        return { file: '', line: '', col: '' };
+        return first || { file: '', line: '', col: '', func: '' };
     }
  
     function formatLine(level, args, caller) {
         var parts = [];
         for (var i = 0; i < args.length; i++) parts.push(safeToString(args[i]));
         var loc = '';
-        if (caller && caller.file) loc = '[' + caller.file + ':' + caller.line + '] ';
+        if (caller && caller.file) {
+            var fn = caller.func ? (' ' + caller.func) : '';
+            loc = '[' + caller.file + ':' + caller.line + fn + '] ';
+        }
         return '[' + nowStamp() + '][' + level + '] ' + loc + parts.join(' ');
     }
  
-    function pushEntry(level, line) {
-        entries.push({ level: String(level || 'info').toLowerCase(), text: line });
+    function pushEntry(level, line, ts) {
+        entries.push({ level: String(level || 'info').toLowerCase(), text: line, ts: Number(ts) || Date.now() });
         if (entries.length > MAX_BUFFER) entries.splice(0, entries.length - MAX_BUFFER);
     }
  
@@ -238,10 +243,14 @@
             '<title>Chaos Debug Console</title>' +
             '<style>' +
             'body{margin:0;background:#f2f8f2;color:#111;font-family:Consolas,monospace;}' +
-            '#bar{position:sticky;top:0;background:#e9f3e9;border-bottom:1px solid #cfe2cf;display:flex;gap:8px;padding:8px;align-items:center;}' +
+            '#bar{position:sticky;top:0;background:#e9f3e9;border-bottom:1px solid #cfe2cf;display:flex;gap:10px;padding:8px;align-items:center;flex-wrap:wrap;}' +
             'button{background:#ffffff;border:1px solid #c9d9c9;color:#111;padding:6px 10px;cursor:pointer;}' +
             'button:hover{background:#f7fbf7;}' +
-            '#meta{margin-left:auto;opacity:.75;font-size:12px;}' +
+            '#meta{margin-left:auto;opacity:.75;font-size:12px;white-space:nowrap;}' +
+            'label{display:inline-flex;align-items:center;gap:6px;font-size:12px;}' +
+            'input[type=\"checkbox\"]{transform:scale(1.05);}' +
+            'input[type=\"text\"],input[type=\"datetime-local\"]{border:1px solid #c9d9c9;background:#fff;padding:5px 8px;font-family:inherit;font-size:12px;}' +
+            '#filters{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}' +
             '#chaos-log{padding:10px;}' +
             '.line{white-space:pre-wrap;word-break:break-word;line-height:1.35;}' +
             '.debug{color:' + LEVELS.debug.color + ';}' +
@@ -252,19 +261,56 @@
             '<div id=\"bar\">' +
             '<button id=\"btn-clear\">清空</button>' +
             '<button id=\"btn-copy\">复制</button>' +
+            '<div id=\"filters\">' +
+            '<label><input id=\"lv_debug\" type=\"checkbox\" checked />debug</label>' +
+            '<label><input id=\"lv_info\" type=\"checkbox\" checked />info</label>' +
+            '<label><input id=\"lv_warning\" type=\"checkbox\" checked />warning</label>' +
+            '<label><input id=\"lv_error\" type=\"checkbox\" checked />error</label>' +
+            '<label>起 <input id=\"t_start\" type=\"datetime-local\" /></label>' +
+            '<label>止 <input id=\"t_end\" type=\"datetime-local\" /></label>' +
+            '<label>关键字 <input id=\"kw\" type=\"text\" placeholder=\"模糊匹配\" /></label>' +
+            '<button id=\"btn-reset\">重置过滤</button>' +
+            '</div>' +
             '<span id=\"meta\"></span>' +
             '</div>' +
             '<div id=\"chaos-log\"></div>' +
             '<script>' +
             'window.__CHAOS_LOGS__=[];' +
+            'window.__CHAOS_FILTER__={levels:{debug:true,info:true,warning:true,error:true},start:null,end:null,kw:\"\"};' +
+            'function parseTime(v){ if(!v) return null; var t=Date.parse(v); return isNaN(t)?null:t; }' +
+            'function norm(s){ return (s||\"\").toLowerCase(); }' +
+            'function pass(e){' +
+            'var f=window.__CHAOS_FILTER__; var lv=(e&&e.level)?e.level:\"info\"; if(!f.levels[lv]) return false;' +
+            'var ts=(e&&typeof e.ts===\"number\")?e.ts:null; if(f.start!==null && ts!==null && ts<f.start) return false; if(f.end!==null && ts!==null && ts>f.end) return false;' +
+            'var kw=norm(f.kw); if(kw){ var txt=norm(e&&e.text?e.text:\"\"); if(txt.indexOf(kw)<0) return false; }' +
+            'return true;' +
+            '}' +
             'function render(all){' +
             'var box=document.getElementById(\"chaos-log\");box.innerHTML=\"\";' +
-            'for(var i=0;i<all.length;i++){var e=all[i];var d=document.createElement(\"div\");d.className=\"line \"+(e.level||\"info\");d.textContent=e.text;box.appendChild(d);} window.scrollTo(0,document.body.scrollHeight);' +
+            'for(var i=0;i<all.length;i++){var e=all[i]; if(!pass(e)) continue; var d=document.createElement(\"div\");d.className=\"line \"+(e.level||\"info\");d.textContent=e.text;box.appendChild(d);} window.scrollTo(0,document.body.scrollHeight);' +
             '}' +
+            'function syncFilter(){' +
+            'var f=window.__CHAOS_FILTER__;' +
+            'f.levels.debug=!!document.getElementById(\"lv_debug\").checked;' +
+            'f.levels.info=!!document.getElementById(\"lv_info\").checked;' +
+            'f.levels.warning=!!document.getElementById(\"lv_warning\").checked;' +
+            'f.levels.error=!!document.getElementById(\"lv_error\").checked;' +
+            'f.start=parseTime(document.getElementById(\"t_start\").value);' +
+            'f.end=parseTime(document.getElementById(\"t_end\").value);' +
+            'f.kw=document.getElementById(\"kw\").value||\"\";' +
+            '}' +
+            'function rerender(){ syncFilter(); render(window.__CHAOS_LOGS__); }' +
             'document.getElementById(\"btn-clear\").onclick=function(){window.__CHAOS_LOGS__=[];render(window.__CHAOS_LOGS__);};' +
-            'document.getElementById(\"btn-copy\").onclick=function(){var t=window.__CHAOS_LOGS__.map(function(x){return x.text;}).join(\"\\n\");' +
+            'document.getElementById(\"btn-reset\").onclick=function(){' +
+            'document.getElementById(\"lv_debug\").checked=true;document.getElementById(\"lv_info\").checked=true;document.getElementById(\"lv_warning\").checked=true;document.getElementById(\"lv_error\").checked=true;' +
+            'document.getElementById(\"t_start\").value=\"\";document.getElementById(\"t_end\").value=\"\";document.getElementById(\"kw\").value=\"\";' +
+            'rerender();' +
+            '};' +
+            'document.getElementById(\"btn-copy\").onclick=function(){syncFilter(); var t=window.__CHAOS_LOGS__.filter(pass).map(function(x){return x.text;}).join(\"\\n\");' +
             'if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t);}else{var ta=document.createElement(\"textarea\");ta.value=t;document.body.appendChild(ta);ta.select();document.execCommand(\"copy\");document.body.removeChild(ta);}' +
             '};' +
+            'document.getElementById(\"lv_debug\").onchange=rerender;document.getElementById(\"lv_info\").onchange=rerender;document.getElementById(\"lv_warning\").onchange=rerender;document.getElementById(\"lv_error\").onchange=rerender;' +
+            'document.getElementById(\"t_start\").onchange=rerender;document.getElementById(\"t_end\").onchange=rerender;document.getElementById(\"kw\").oninput=rerender;' +
             'window.addEventListener(\"message\",function(ev){var m=ev.data||null; if(!m||m.__chaosLog!==true) return;' +
             'if(m.type===\"meta\"){var meta=document.getElementById(\"meta\"); if(meta) meta.textContent=m.text||\"\"; return;}' +
             'if(m.type===\"batch\"){for(var i=0;i<m.items.length;i++) window.__CHAOS_LOGS__.push(m.items[i]);}' +
@@ -364,14 +410,13 @@
             var items = entries.slice(0);
             w.postMessage({ __chaosLog: true, type: 'batch', items: items }, '*');
         } catch (e) {}
-        writeToWindow(entries);
     }
  
-    function sendOneToWindow(level, text) {
+    function sendOneToWindow(level, text, ts) {
         var w = getLogWindow();
         if (!w || w.closed) return;
         try {
-            w.postMessage({ __chaosLog: true, type: 'one', item: { level: level, text: text } }, '*');
+            w.postMessage({ __chaosLog: true, type: 'one', item: { level: level, text: text, ts: Number(ts) || Date.now() } }, '*');
         } catch (e) {}
     }
  
@@ -384,12 +429,21 @@
     }
  
     function emit(level, args) {
-        var caller = parseCaller();
-        var line = formatLine(level, args, caller);
-        pushEntry(level, line);
+        var argv = Array.prototype.slice.call(args || []);
+        var meta = null;
+        if (argv.length > 0) {
+            var last = argv[argv.length - 1];
+            if (last && typeof last === 'object' && (last.__file || last.__line || last.__func)) {
+                meta = { file: String(last.__file || ''), line: String(last.__line || ''), col: '', func: String(last.__func || '') };
+                argv.pop();
+            }
+        }
+        var caller = meta || parseCaller();
+        var ts = Date.now();
+        var line = formatLine(level, argv, caller);
+        pushEntry(level, line, ts);
         queue.push(line);
-        sendOneToWindow(String(level).toLowerCase(), line);
-        writeToWindow(entries);
+        sendOneToWindow(String(level).toLowerCase(), line, ts);
     }
  
     Chaos.DebugConsole = Chaos.DebugConsole || {};
@@ -405,6 +459,10 @@
     Chaos.Log.info = function() { emit('info', arguments); };
     Chaos.Log.warning = function() { emit('warning', arguments); };
     Chaos.Log.error = function() { emit('error', arguments); };
+    Chaos.Log.here = function() {
+        var c = parseCaller();
+        return { __file: c.file || '', __line: c.line || '', __func: c.func || '' };
+    };
  
     if (root.Input && root.Input.keyMapper) {
         root.Input.keyMapper[121] = 'chaosDebugConsole';
